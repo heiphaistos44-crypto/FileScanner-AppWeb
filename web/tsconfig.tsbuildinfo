@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/stores/scan.ts","./src/types/scan.ts","./src/app.vue","./src/components/dropzone.vue","./src/components/resultdetails.vue","./src/components/sectioncard.vue","./src/components/verdictpanel.vue"],"version":"5.6.3"}
