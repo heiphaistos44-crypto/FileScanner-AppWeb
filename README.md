@@ -2,7 +2,7 @@
 
 ## Démonstration
 
-https://github.com/heiphaistos44-crypto/FileScanner-AppWeb/releases/download/v1.0.0/filescanner.mp4
+https://github.com/heiphaistos44-crypto/FileScanner-AppWeb/raw/main/assets/demo.mp4
 
 
 Version web de [FileScanner](https://github.com/heiphaistos44-crypto/FileScanner) — analyse antivirus de fichiers en ligne, **grandement améliorée** par rapport à la version desktop.
