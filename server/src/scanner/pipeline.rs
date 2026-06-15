@@ -4,7 +4,7 @@
 use crate::analyzer::{archive, binary_parser, entropy, hash, lnk_analyzer, mime, pdf_analyzer, script_parser, strings};
 use crate::api::virustotal;
 use crate::scanner::clamav_db::ClamavDb;
-use crate::scanner::yara_engine::YaraEngine;
+use crate::scanner::yara_engine;
 use crate::types::{
     ArchiveInfo, BinaryInfo, ClamavResult, IoC, PdfInfo, ScanResult, ScriptInfo, Severity, Verdict,
 };
@@ -86,9 +86,8 @@ pub async fn scan_bytes(
     let (extracted_iocs, string_iocs) = strings::extract_iocs(raw_bytes);
     ioc_list.extend(string_iocs);
 
-    // 6. YARA scan (38 règles)
-    let yara = YaraEngine::new();
-    let yara_matches = yara.scan(raw_bytes);
+    // 6. YARA scan (38 règles) — singleton global, pas de reconstruction
+    let yara_matches = yara_engine::global().scan(raw_bytes);
 
     // 7. ClamAV (si base chargée)
     let clamav = ctx.clamav.and_then(|db| {

@@ -2,7 +2,16 @@
 /// Couvre : packers, ransomware, injection, keyloggers, stealers, RATs,
 /// cryptominers, webshells, reverse shells, bypass AV/AMSI, persistance,
 /// frameworks offensifs (Mimikatz, Cobalt Strike, Metasploit), malware Linux.
+use std::sync::OnceLock;
+
 use crate::types::{Severity, YaraMatch};
+
+/// Singleton global — le moteur est construit une seule fois au premier scan.
+static YARA_ENGINE: OnceLock<YaraEngine> = OnceLock::new();
+
+pub fn global() -> &'static YaraEngine {
+    YARA_ENGINE.get_or_init(YaraEngine::new)
+}
 
 struct Rule {
     name: &'static str,

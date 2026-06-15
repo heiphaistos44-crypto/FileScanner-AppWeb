@@ -101,12 +101,32 @@ pub fn categorize(mime: &str, data: &[u8], file_name: &str) -> FileCategory {
     if data.starts_with(&[0x4C, 0x00, 0x00, 0x00]) && ext == "lnk" {
         return FileCategory::Lnk;
     }
-    // Office OOXML (= ZIP) avant la catégorie Archive générique
+    // Office OOXML (= ZIP) avant la catégorie Archive générique.
+    // Vérification anti-spoofing : un vrai fichier OOXML est un ZIP (magic PK\x03\x04).
     if OFFICE_EXTENSIONS.contains(&ext.as_str()) {
-        return FileCategory::OfficeDoc;
+        if data.starts_with(b"PK\x03\x04") {
+            return FileCategory::OfficeDoc;
+        }
+        // Extension Office mais pas un ZIP → traiter comme binaire ou autre selon magic
+        // (la suite du match appliquera la catégorie correcte)
     }
+    // Script : vérifier que les magic bytes ne trahissent pas un exécutable déguisé.
     if SCRIPT_EXTENSIONS.contains(&ext.as_str()) {
-        return FileCategory::Script;
+        let is_binary = infer::get(data)
+            .map(|k| {
+                let m = k.mime_type();
+                m == "application/x-dosexec"
+                    || m == "application/x-executable"
+                    || m == "application/x-mach-binary"
+                    || m == "application/vnd.microsoft.portable-executable"
+            })
+            .unwrap_or(false)
+            || data.starts_with(b"MZ")
+            || data.starts_with(&[0x7F, b'E', b'L', b'F']);
+        if !is_binary {
+            return FileCategory::Script;
+        }
+        // Tombe en cascade vers PE/ELF déjà couverts ci-dessus (ou Other)
     }
     // Shebang → script même sans extension
     if data.starts_with(b"#!") {

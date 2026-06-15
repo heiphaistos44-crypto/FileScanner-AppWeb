@@ -48,7 +48,8 @@ fn extract_ascii_strings(data: &[u8]) -> String {
     const MAX_ANALYZE: usize = 4 * 1024 * 1024;
     let slice = &data[..data.len().min(MAX_ANALYZE)];
 
-    let mut out = String::with_capacity(64 * 1024);
+    // Capacité bornée à la taille réelle de la slice pour éviter l'allocation 4 MB systématique
+    let mut out = String::with_capacity(slice.len().min(64 * 1024));
     let mut current = Vec::new();
 
     for &b in slice {
@@ -78,7 +79,18 @@ pub fn extract_iocs(data: &[u8]) -> (ExtractedIoCs, Vec<IoC>) {
     let urls: BTreeSet<String> = RE_URL
         .find_iter(&text)
         .map(|m| m.as_str().to_string())
-        .filter(|u| !URL_ALLOWLIST.iter().any(|allow| u.contains(allow)))
+        .filter(|u| {
+            // Extraire le domaine pour éviter le bypass via sous-chemin (ex: evil.com/schemas.microsoft.com)
+            let domain = u
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .split('/')
+                .next()
+                .unwrap_or("");
+            !URL_ALLOWLIST
+                .iter()
+                .any(|allow| domain == *allow || domain.ends_with(&format!(".{allow}")))
+        })
         .collect();
 
     let ips: BTreeSet<String> = RE_IP

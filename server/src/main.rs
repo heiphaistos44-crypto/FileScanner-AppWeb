@@ -66,8 +66,10 @@ impl KeyExtractor for ClientIpExtractor {
                 .ok()
         };
 
+        // Priorité : cf-connecting-ip (Cloudflare) → x-real-ip (nginx/proxy direct)
+        // Ne pas utiliser x-forwarded-for (premier segment spoofable par le client).
         header_ip("cf-connecting-ip")
-            .or_else(|| header_ip("x-forwarded-for"))
+            .or_else(|| header_ip("x-real-ip"))
             .or_else(|| {
                 req.extensions()
                     .get::<axum::extract::ConnectInfo<SocketAddr>>()
@@ -94,12 +96,10 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let clamav_status = state.clamav.as_ref().map(|db| db.status());
+    // Ne pas exposer : version exacte, statut VT, compteurs de signatures ClamAV
     Json(serde_json::json!({
         "status": "ok",
-        "version": VERSION,
-        "clamav": clamav_status,
-        "virustotal": !state.vt_api_key.is_empty(),
+        "av_enhanced": state.clamav.is_some() || !state.vt_api_key.is_empty(),
     }))
 }
 
@@ -226,11 +226,14 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow!("Config rate-limit invalide"))?,
     );
 
+    // Ordre : DefaultBodyLimit (le plus externe) → GovernorLayer → TimeoutLayer
+    // DefaultBodyLimit doit être le premier layer pour rejeter les corps trop grands
+    // avant que GovernorLayer ne consomme un slot de quota sur une requête invalide.
     let api = Router::new()
         .route("/api/scan", post(scan))
         .route("/api/health", get(health))
-        .layer(GovernorLayer { config: governor_conf })
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
+        .layer(GovernorLayer { config: governor_conf })
         .layer(TimeoutLayer::new(Duration::from_secs(150)))
         .with_state(state);
 

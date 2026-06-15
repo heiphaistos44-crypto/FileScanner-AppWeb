@@ -1,4 +1,5 @@
 /// virustotal.rs — Lookup VirusTotal v3 (repris du desktop, clé côté serveur).
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::Client;
@@ -6,6 +7,18 @@ use serde::Deserialize;
 
 use crate::error::ScanError;
 use crate::types::VtResult;
+
+/// Client HTTP partagé — une seule instance pour réutiliser le pool de connexions.
+static VT_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn vt_client() -> &'static Client {
+    VT_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("Impossible de créer le client HTTP VirusTotal")
+    })
+}
 
 const VT_API_BASE: &str = "https://www.virustotal.com/api/v3";
 const MAX_RETRIES: u32 = 3;
@@ -69,10 +82,8 @@ pub async fn lookup(sha256: &str, api_key: &str) -> Result<VtResult, ScanError> 
         return Err(ScanError::Internal("Clé API absente".to_string()));
     }
 
-    let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
-
     let response = with_backoff(|| {
-        let client = client.clone();
+        let client = vt_client().clone();
         let url = format!("{}/files/{}", VT_API_BASE, sha256);
         let key = api_key.to_string();
         async move {

@@ -152,7 +152,8 @@ fn analyze_elf(raw_bytes: &[u8], elf: &goblin::elf::Elf) -> (BinaryInfo, Vec<IoC
         let name = elf.shdr_strtab.get_at(sh.sh_name).unwrap_or("?").to_string();
         let start = sh.sh_offset as usize;
         let size = sh.sh_size as usize;
-        let end = (start + size).min(raw_bytes.len());
+        // saturating_add évite l'overflow sur des offsets malformés
+        let end = start.saturating_add(size).min(raw_bytes.len());
         let data = if start < raw_bytes.len() && sh.sh_type != goblin::elf::section_header::SHT_NOBITS {
             &raw_bytes[start..end]
         } else {
@@ -273,7 +274,8 @@ fn analyze_macho_binary(
         let name = segment.name().unwrap_or("?").to_string();
         let start = segment.fileoff as usize;
         let size = segment.filesize as usize;
-        let end = (start + size).min(raw_bytes.len());
+        // saturating_add évite l'overflow sur des offsets Mach-O malformés
+        let end = start.saturating_add(size).min(raw_bytes.len());
         let data = if start < raw_bytes.len() { &raw_bytes[start..end] } else { &[] };
 
         let entropy = shannon_entropy(data);

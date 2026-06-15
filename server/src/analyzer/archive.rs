@@ -21,6 +21,8 @@ const VBA_KEYWORDS: &[&str] = &[
 
 const MAX_ENTRIES_LISTED: usize = 100;
 const MAX_VBA_SCAN_BYTES: u64 = 5 * 1024 * 1024;
+/// Limite décompression totale : protège contre les ZIP bombs (ex. 42.zip)
+const MAX_TOTAL_UNCOMPRESSED: u64 = 200 * 1024 * 1024; // 200 MB
 
 pub fn analyze_zip(data: &[u8], archive_type: &str) -> Option<(ArchiveInfo, Vec<IoC>)> {
     let cursor = Cursor::new(data);
@@ -34,9 +36,23 @@ pub fn analyze_zip(data: &[u8], archive_type: &str) -> Option<(ArchiveInfo, Vec<
     let mut has_vba_macros = false;
     let mut vba_keywords: Vec<String> = Vec::new();
     let mut ioc_list = Vec::new();
+    let mut total_uncompressed: u64 = 0;
 
     for i in 0..total_entries {
         let Ok(entry) = zip.by_index(i) else { continue };
+
+        // Anti ZIP bomb : cumul des tailles décompressées
+        total_uncompressed = total_uncompressed
+            .checked_add(entry.size())
+            .unwrap_or(u64::MAX);
+        if total_uncompressed > MAX_TOTAL_UNCOMPRESSED {
+            tracing::warn!(
+                "ZIP bomb détectée : taille décompressée cumulée > {} MB — archive rejetée",
+                MAX_TOTAL_UNCOMPRESSED / (1024 * 1024)
+            );
+            return None;
+        }
+
         let name = entry.name().to_string();
         let lower = name.to_lowercase();
 
@@ -71,9 +87,12 @@ pub fn analyze_zip(data: &[u8], archive_type: &str) -> Option<(ArchiveInfo, Vec<
         // Macros VBA : vbaProject.bin présent (docm/xlsm ou docx piégé)
         if lower.ends_with("vbaproject.bin") {
             has_vba_macros = true;
+            // Lire les métadonnées AVANT le rebind mutable
+            let vba_size = entry.size();
+            let vba_compressed_size = entry.compressed_size();
             // Scan des mots-clés dans le blob OLE (strings brutes)
-            if entry.size() <= MAX_VBA_SCAN_BYTES {
-                let mut entry = entry; // rebind mutable
+            if vba_size <= MAX_VBA_SCAN_BYTES {
+                let mut entry = entry; // rebind mutable pour lecture
                 let mut buf = Vec::new();
                 if entry.read_to_end(&mut buf).is_ok() {
                     for kw in VBA_KEYWORDS {
@@ -89,8 +108,8 @@ pub fn analyze_zip(data: &[u8], archive_type: &str) -> Option<(ArchiveInfo, Vec<
             if entries.len() < MAX_ENTRIES_LISTED {
                 entries.push(ArchiveEntry {
                     name,
-                    size: 0,
-                    compressed_size: 0,
+                    size: vba_size,
+                    compressed_size: vba_compressed_size,
                     is_executable: false,
                     is_encrypted: false,
                 });
