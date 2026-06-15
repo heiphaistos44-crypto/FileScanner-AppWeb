@@ -226,15 +226,16 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow!("Config rate-limit invalide"))?,
     );
 
-    // Ordre : DefaultBodyLimit (le plus externe) → GovernorLayer → TimeoutLayer
-    // DefaultBodyLimit doit être le premier layer pour rejeter les corps trop grands
-    // avant que GovernorLayer ne consomme un slot de quota sur une requête invalide.
+    // En axum, le DERNIER .layer() est le plus externe (voit la requête en premier).
+    // Ordre d'exécution : DefaultBodyLimit → GovernorLayer → TimeoutLayer → handler
+    // DefaultBodyLimit en dernier = rejet des corps >100MB avant que GovernorLayer
+    // ne consomme un quota de rate-limit sur une requête invalide.
     let api = Router::new()
         .route("/api/scan", post(scan))
         .route("/api/health", get(health))
-        .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
-        .layer(GovernorLayer { config: governor_conf })
         .layer(TimeoutLayer::new(Duration::from_secs(150)))
+        .layer(GovernorLayer { config: governor_conf })
+        .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
         .with_state(state);
 
     let index = format!("{static_dir}/index.html");
