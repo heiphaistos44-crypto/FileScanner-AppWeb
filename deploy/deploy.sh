@@ -17,6 +17,7 @@ if ! command -v cargo >/dev/null 2>&1; then
         source "$HOME/.cargo/env"
     }
 fi
+source "$HOME/.cargo/env" 2>/dev/null || true
 
 # ── 2. Bases ClamAV (hash signatures) ──────────────────────────────
 mkdir -p "$CLAMAV_DIR"
@@ -31,13 +32,20 @@ if [ ! -f "$CLAMAV_DIR/main.cvd" ]; then
         LOG "WARN: téléchargement main.cvd échoué"
 fi
 
-# ── 3. Build serveur ───────────────────────────────────────────────
+# ── 3. Build frontend Vue ──────────────────────────────────────────
+LOG "Build frontend Vue 3..."
+cd "$APP_DIR/web"
+npm ci --prefer-offline
+npm run build
+LOG "Frontend buildé dans $APP_DIR/web/dist"
+
+# ── 4. Build serveur Rust ──────────────────────────────────────────
 LOG "cargo build --release..."
 cd "$APP_DIR/server"
 cargo build --release
 LOG "Binaire : $APP_DIR/server/target/release/filescanner-server"
 
-# ── 4. PM2 ─────────────────────────────────────────────────────────
+# ── 5. PM2 ─────────────────────────────────────────────────────────
 cd "$APP_DIR"
 if pm2 describe filescanner >/dev/null 2>&1; then
     LOG "Restart PM2 filescanner..."
@@ -51,6 +59,6 @@ else
     pm2 save
 fi
 
-# ── 5. Vérification ────────────────────────────────────────────────
+# ── 6. Vérification ────────────────────────────────────────────────
 sleep 3
 curl -fsS http://127.0.0.1:3004/api/health && echo "" && LOG "Déploiement OK ✅"
