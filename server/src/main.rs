@@ -29,7 +29,7 @@ use tower_governor::{
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
-    set_response_header::SetResponseHeaderLayer,
+    set_header::SetResponseHeaderLayer,
     timeout::TimeoutLayer,
 };
 
@@ -98,20 +98,10 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Expose uniquement les infos affichées par le frontend (statut on/off + comptes signa-
-    // tures pour l'indicateur visuel). Ne pas exposer la clé VT ni les paths internes.
-    let clamav_status = state.clamav.as_ref().map(|db| {
-        let st = db.status();
-        serde_json::json!({
-            "loaded": st.loaded,
-            "md5_count": st.md5_count,
-            "sha256_count": st.sha256_count,
-        })
-    });
+    // Ne pas exposer : version exacte, statut VT, compteurs de signatures ClamAV
     Json(serde_json::json!({
         "status": "ok",
-        "clamav": clamav_status,
-        "virustotal": !state.vt_api_key.is_empty(),
+        "av_enhanced": state.clamav.is_some() || !state.vt_api_key.is_empty(),
     }))
 }
 
@@ -262,6 +252,10 @@ async fn main() -> anyhow::Result<()> {
             HeaderValue::from_static("DENY"),
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
             header::REFERRER_POLICY,
             HeaderValue::from_static("strict-origin-when-cross-origin"),
         ))
@@ -278,7 +272,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/scan", post(scan))
         .route("/api/health", get(health))
         .layer(cors)
-        .layer(TimeoutLayer::new(Duration::from_secs(150)))
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(150)))
         .layer(GovernorLayer { config: governor_conf })
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
         .with_state(state);

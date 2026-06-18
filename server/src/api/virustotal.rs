@@ -11,13 +11,15 @@ use crate::types::VtResult;
 /// Client HTTP partagé — une seule instance pour réutiliser le pool de connexions.
 static VT_CLIENT: OnceLock<Client> = OnceLock::new();
 
-fn vt_client() -> &'static Client {
-    VT_CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .expect("Impossible de créer le client HTTP VirusTotal")
-    })
+fn vt_client() -> Result<&'static Client, ScanError> {
+    if let Some(c) = VT_CLIENT.get() {
+        return Ok(c);
+    }
+    let client = Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| ScanError::Internal(format!("Impossible de créer le client HTTP VirusTotal : {e}")))?;
+    Ok(VT_CLIENT.get_or_init(|| client))
 }
 
 const VT_API_BASE: &str = "https://www.virustotal.com/api/v3";
@@ -86,8 +88,9 @@ pub async fn lookup(sha256: &str, api_key: &str) -> Result<VtResult, ScanError> 
         return Err(ScanError::Internal("Hash SHA-256 invalide".to_string()));
     }
 
+    let client = vt_client()?;
     let response = with_backoff(|| {
-        let client = vt_client().clone();
+        let client = client.clone();
         let url = format!("{}/files/{}", VT_API_BASE, sha256);
         let key = api_key.to_string();
         async move {
