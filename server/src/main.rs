@@ -132,12 +132,13 @@ async fn scan(
         return Err(bad_request("Fichier vide"));
     }
 
-    // Nom de fichier nettoyé (pas de path)
+    // Nom de fichier nettoyé (pas de path, pas de null bytes ni caractères de contrôle)
     let file_name = file_name
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or("unknown")
         .chars()
+        .filter(|c| !matches!(c, '\0' | '\x01'..='\x1f'))
         .take(255)
         .collect::<String>();
 
@@ -233,7 +234,7 @@ async fn main() -> anyhow::Result<()> {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::exact(
             allowed_origin.parse::<HeaderValue>()
-                .expect("ALLOWED_ORIGIN invalide"),
+                .map_err(|e| anyhow!("ALLOWED_ORIGIN invalide : {e}"))?,
         ));
 
     // Security headers appliqués à toutes les réponses
