@@ -81,6 +81,10 @@ pub async fn lookup(sha256: &str, api_key: &str) -> Result<VtResult, ScanError> 
     if api_key.is_empty() {
         return Err(ScanError::Internal("Clé API absente".to_string()));
     }
+    // Validation stricte : SHA-256 = 64 hex lowercase uniquement (défense en profondeur)
+    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ScanError::Internal("Hash SHA-256 invalide".to_string()));
+    }
 
     let response = with_backoff(|| {
         let client = vt_client().clone();

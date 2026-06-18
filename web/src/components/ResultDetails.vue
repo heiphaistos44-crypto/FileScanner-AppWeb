@@ -202,7 +202,7 @@ const iocsTotal = computed(() => {
           {{ r.virustotal.positives }} / {{ r.virustotal.total }}
         </dd>
         <dt>Dernier scan</dt><dd>{{ r.virustotal.scan_date }}</dd>
-        <dt>Lien</dt><dd><a :href="r.virustotal.permalink" target="_blank" rel="noopener" style="color: var(--accent)">Voir sur VirusTotal ↗</a></dd>
+        <dt>Lien</dt><dd><a :href="r.virustotal.permalink" target="_blank" rel="noopener noreferrer" style="color: var(--accent)">Voir sur VirusTotal ↗</a></dd>
       </dl>
       <div v-if="r.virustotal.detection_names.length > 0" style="margin-top: 4px">
         <span v-for="n in r.virustotal.detection_names" :key="n" class="chip danger">{{ n }}</span>

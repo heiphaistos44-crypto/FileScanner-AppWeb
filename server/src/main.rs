@@ -17,7 +17,7 @@ use std::{
 use anyhow::anyhow;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, State},
-    http::{Request, StatusCode},
+    http::{header, HeaderValue, Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -27,7 +27,9 @@ use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
 use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
+    set_response_header::SetResponseHeaderLayer,
     timeout::TimeoutLayer,
 };
 
@@ -96,10 +98,20 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Ne pas exposer : version exacte, statut VT, compteurs de signatures ClamAV
+    // Expose uniquement les infos affichées par le frontend (statut on/off + comptes signa-
+    // tures pour l'indicateur visuel). Ne pas exposer la clé VT ni les paths internes.
+    let clamav_status = state.clamav.as_ref().map(|db| {
+        let st = db.status();
+        serde_json::json!({
+            "loaded": st.loaded,
+            "md5_count": st.md5_count,
+            "sha256_count": st.sha256_count,
+        })
+    });
     Json(serde_json::json!({
         "status": "ok",
-        "av_enhanced": state.clamav.is_some() || !state.vt_api_key.is_empty(),
+        "clamav": clamav_status,
+        "virustotal": !state.vt_api_key.is_empty(),
     }))
 }
 
@@ -175,6 +187,8 @@ async fn main() -> anyhow::Result<()> {
 
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3004);
     let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "../web/dist".into());
+    let allowed_origin = std::env::var("ALLOWED_ORIGIN")
+        .unwrap_or_else(|_| "https://filescanner-app.heiphaistos.org".into());
     let vt_api_key = std::env::var("VT_API_KEY").unwrap_or_default();
     let clamav_dir = std::env::var("CLAMAV_DB_DIR").unwrap_or_default();
 
@@ -226,6 +240,36 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow!("Config rate-limit invalide"))?,
     );
 
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::exact(
+            allowed_origin.parse::<HeaderValue>()
+                .expect("ALLOWED_ORIGIN invalide"),
+        ));
+
+    // Security headers appliqués à toutes les réponses
+    let csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'";
+    let sec_headers = tower::ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(csp),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+        ));
+
     // En axum, le DERNIER .layer() est le plus externe (voit la requête en premier).
     // Ordre d'exécution : DefaultBodyLimit → GovernorLayer → TimeoutLayer → handler
     // DefaultBodyLimit en dernier = rejet des corps >100MB avant que GovernorLayer
@@ -233,6 +277,7 @@ async fn main() -> anyhow::Result<()> {
     let api = Router::new()
         .route("/api/scan", post(scan))
         .route("/api/health", get(health))
+        .layer(cors)
         .layer(TimeoutLayer::new(Duration::from_secs(150)))
         .layer(GovernorLayer { config: governor_conf })
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
@@ -241,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
     let index = format!("{static_dir}/index.html");
     let static_service = ServeDir::new(&static_dir).fallback(ServeFile::new(&index));
 
-    let app = api.fallback_service(static_service);
+    let app = api.fallback_service(static_service).layer(sec_headers);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("FileScanner Web v{VERSION} — écoute sur http://{addr}");
