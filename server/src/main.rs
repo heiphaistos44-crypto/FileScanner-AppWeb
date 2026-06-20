@@ -97,12 +97,9 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Ne pas exposer : version exacte, statut VT, compteurs de signatures ClamAV
-    Json(serde_json::json!({
-        "status": "ok",
-        "av_enhanced": state.clamav.is_some() || !state.vt_api_key.is_empty(),
-    }))
+async fn health(_state: State<Arc<AppState>>) -> impl IntoResponse {
+    // Ne pas exposer les capacités AV (fingerprinting attaquant)
+    Json(serde_json::json!({ "status": "ok" }))
 }
 
 async fn scan(

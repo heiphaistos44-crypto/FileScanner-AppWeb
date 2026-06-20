@@ -30,10 +30,8 @@ async function onFile(f: File) {
       <span class="version">v{{ __APP_VERSION__ }}</span>
     </div>
     <div class="status" v-if="store.health">
-      <span class="dot" :class="{ on: store.health.clamav?.loaded }"></span>
-      ClamAV {{ store.health.clamav?.loaded ? `(${((store.health.clamav.md5_count + store.health.clamav.sha256_count) / 1000).toFixed(0)}k sig.)` : 'inactif' }}
-      <span class="dot" :class="{ on: store.health.virustotal }" style="margin-left: 10px"></span>
-      VirusTotal {{ store.health.virustotal ? 'actif' : 'inactif' }}
+      <span class="dot on"></span>
+      Scanner actif
     </div>
   </header>
 

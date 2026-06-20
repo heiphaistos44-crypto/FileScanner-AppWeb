@@ -135,9 +135,6 @@ export interface ScanResult {
 
 export interface HealthStatus {
   status: string
-  version: string
-  clamav: { loaded: boolean; md5_count: number; sha256_count: number } | null
-  virustotal: boolean
 }
 
 export function formatBytes(bytes: number): string {
